@@ -9,7 +9,7 @@ Keep the raw export outside the repo.
 import json, sys
 
 SHEET_PLACEHOLDER = 'YOUR_SPREADSHEET_ID'
-FOLDER_PLACEHOLDER = 'C:/path/to/invoice-checker/invoices/'
+FOLDER_PLACEHOLDER = 'C:/CHANGE-ME/invoice-checker/invoices/'
 KEEP_TOP = ['name', 'description', 'nodes', 'connections']
 KEEP_SETTINGS = ['executionOrder', 'binaryMode']
 
