@@ -1,0 +1,625 @@
+{
+  "name": "Invoice checker - demo form",
+  "description": "Demo version of the invoice checker. Starts from a local n8n form where you upload one invoice PDF. Extracts the vendor, invoice number, date, line items, subtotal, tax and total with Gemini, then runs the same rule checks as the batch workflow: duplicate invoice, line amounts vs qty × unit price, subtotal, 6% tax, total, and date. Clean invoices are appended to the \"Approved\" sheet, flagged ones to \"Needs review\" with reasons, and every result to \"Results\". Uses synthetic test invoices only.",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "invoice",
+        "options": {
+          "keepSource": "json"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "913bc715-7818-4144-bf29-8d52234769bf",
+      "name": "Extract PDF text"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash-lite",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        608,
+        208
+      ],
+      "id": "5f98a05b-89bd-4a14-a950-7df42438cd3d",
+      "name": "Gemini"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Invoice checking rules. Plain code decides pass/fail; the AI only extracts fields.\n// Pure function: no clock, network or sheet access. The caller passes in today's date\n// and the invoices already approved.\n// This file is pasted into the n8n Code node as-is, so it must not depend on Node-only APIs.\n\nconst DEFAULT_TAX_RATE = 0.06; // fictional flat rate used by the synthetic test invoices\nconst REQUIRED = ['vendor', 'invoice_no', 'date', 'lines', 'subtotal', 'tax', 'total'];\n\n// Compare money in whole cents so floating-point noise never matters; allow 1 cent (0.01) difference.\nconst cents = (x) => Math.round(x * 100);\nconst closeEnough = (a, b) => Math.abs(cents(a) - cents(b)) <= 1;\nconst isNum = (x) => typeof x === 'number' && Number.isFinite(x);\nconst money = (x) => x.toFixed(2);\nconst percent = (rate) => `${Math.round(rate * 10000) / 100}%`;\nconst isMissing = (v) => v === null || v === undefined || (typeof v === 'string' && v.trim() === '') ||\n  (Array.isArray(v) && v.length === 0);\n\n// Duplicate matching ignores formatting: \"INV-1000\", \"inv 1000\" and \"INV1000\" are the same number,\n// and \"Demo Office Mart\" / \"DEMO OFFICE MART.\" are the same vendor.\nconst normNumber = (s) => String(s).toUpperCase().replace(/[\\s\\-_/.]/g, '');\nconst normVendor = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');\n\nfunction localToday() {\n  const d = new Date();\n  const pad = (n) => String(n).padStart(2, '0');\n  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;\n}\n\n// True only for a real calendar date written as YYYY-MM-DD (rejects 2026-13-45 and 2026-02-30).\nfunction isRealIsoDate(s) {\n  const m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(s);\n  if (!m) return false;\n  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];\n  const dt = new Date(Date.UTC(y, mo - 1, d));\n  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;\n}\n\n/**\n * @param {object} inv  extracted fields: vendor, invoice_no, date (YYYY-MM-DD),\n *                      lines [{description, qty, unit_price, amount}], subtotal, tax, total\n * @param {object} [opts]\n * @param {{vendor: string, invoice_no: string}[]} [opts.approved]  invoices already in the Approved sheet\n * @param {string} [opts.today]    'YYYY-MM-DD'; defaults to the local date\n * @param {number} [opts.taxRate]  e.g. 0.06 for 6%; change it for a different tax regime\n * @returns {{flagged: boolean, reasons: string[]}}\n */\nfunction checkInvoice(inv, { approved = [], today = localToday(), taxRate = DEFAULT_TAX_RATE } = {}) {\n  const reasons = [];\n  const f = inv || {};\n\n  // Rule: no required field is missing\n  for (const key of REQUIRED) {\n    if (isMissing(f[key])) reasons.push(`Missing field: ${key}`);\n  }\n  for (const key of ['subtotal', 'tax', 'total']) {\n    if (!isMissing(f[key]) && !isNum(f[key])) reasons.push(`Not a number: ${key}`);\n  }\n\n  // Rules: each line's qty x unit price equals its amount, and the line amounts add up to the subtotal\n  if (Array.isArray(f.lines) && f.lines.length > 0) {\n    const badLine = f.lines.some((l) => !l || !isNum(l.qty) || !isNum(l.unit_price) || !isNum(l.amount));\n    if (badLine) {\n      reasons.push('A line item is missing its quantity, unit price or amount');\n    } else {\n      f.lines.forEach((l, i) => {\n        if (!closeEnough(l.qty * l.unit_price, l.amount)) {\n          reasons.push(`Line ${i + 1} (${l.description}): ${l.qty} x ${money(l.unit_price)} = ` +\n            `${money(l.qty * l.unit_price)}, but amount is ${money(l.amount)}`);\n        }\n      });\n      if (isNum(f.subtotal)) {\n        const sum = f.lines.reduce((acc, l) => acc + l.amount, 0);\n        if (!closeEnough(sum, f.subtotal)) {\n          reasons.push(`Line amounts add up to ${money(sum)}, but subtotal is ${money(f.subtotal)}`);\n        }\n      }\n    }\n  }\n\n  // Rule: tax is the expected rate of the subtotal\n  if (isNum(f.subtotal) && isNum(f.tax)) {\n    const expected = f.subtotal * taxRate;\n    if (!closeEnough(expected, f.tax)) {\n      reasons.push(`Tax ${money(f.tax)} is not ${percent(taxRate)} of subtotal ${money(f.subtotal)} ` +\n        `(expected ${money(expected)})`);\n    }\n  }\n\n  // Rule: subtotal plus tax equals the total\n  if (isNum(f.subtotal) && isNum(f.tax) && isNum(f.total)) {\n    if (!closeEnough(f.subtotal + f.tax, f.total)) {\n      reasons.push(`Subtotal + tax is ${money(f.subtotal + f.tax)}, but total is ${money(f.total)}`);\n    }\n  }\n\n  // Rule: invoice number looks like INV- followed by digits\n  const invNo = typeof f.invoice_no === 'string' ? f.invoice_no.trim() : f.invoice_no;\n  if (!isMissing(invNo) && (typeof invNo !== 'string' || !/^INV-\\d+$/.test(invNo))) {\n    reasons.push(`Invoice number \"${invNo}\" does not match INV- followed by digits`);\n  }\n\n  // Rule: the same vendor has not already had this invoice number approved\n  if (!isMissing(invNo) && !isMissing(f.vendor)) {\n    const dup = approved.some((a) => a && normVendor(a.vendor) === normVendor(f.vendor) &&\n      normNumber(a.invoice_no) === normNumber(invNo));\n    if (dup) reasons.push(`Duplicate: ${f.vendor} invoice ${invNo} is already approved`);\n  }\n\n  // Rule: date is a real date and not in the future\n  if (!isMissing(f.date)) {\n    if (typeof f.date !== 'string' || !isRealIsoDate(f.date)) {\n      reasons.push(`Date \"${f.date}\" is not a real date in YYYY-MM-DD format`);\n    } else if (f.date > today) {\n      reasons.push(`Date ${f.date} is in the future`);\n    }\n  }\n\n  return { flagged: reasons.length > 0, reasons };\n}\n\nif (typeof module !== 'undefined') module.exports = { checkInvoice };\n\n// ---- n8n glue: everything above this line is src/rules.js unchanged ----\nconst files = $('Extract PDF text').all();      // has fileName, in the same order\nconst extracted = $('AI extract fields').all(); // has { output: {...} } only\n\n// Invoices already in the Approved sheet. An empty sheet gives one empty item, so skip rows without data.\nconst approved = $input.all()\n  .map((item) => item.json)\n  .filter((row) => row.vendor && row.invoice_no)\n  .map((row) => ({ vendor: String(row.vendor), invoice_no: String(row.invoice_no) }));\n\nconst processedAt = new Date().toISOString();\n\nreturn extracted.map((item, i) => {\n  const inv = item.json.output || {};\n  const result = checkInvoice(inv, { approved });\n  // A clean invoice counts as approved for the rest of this batch, so a later copy is caught as a duplicate.\n  if (!result.flagged) approved.push({ vendor: inv.vendor, invoice_no: inv.invoice_no });\n  return {\n    json: {\n      processed_at: processedAt,\n      file: files[i].json.fileName ?? files[i].json.invoice?.filename,\n      vendor: inv.vendor,\n      invoice_no: inv.invoice_no,\n      date: inv.date,\n      subtotal: inv.subtotal,\n      tax: inv.tax,\n      total: inv.total,\n      flagged: result.flagged,\n      reasons: result.reasons.join('; '),\n    },\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        0
+      ],
+      "id": "23d0d290-426e-48e2-89a4-c0608dc309b6",
+      "name": "Check Rules"
+    },
+    {
+      "parameters": {
+        "text": "={{ $json.text }}",
+        "schemaType": "manual",
+        "inputSchema": "{\"type\":\"object\",\"properties\":{\"vendor\":{\"type\":[\"string\",\"null\"]},\"invoice_no\":{\"type\":[\"string\",\"null\"]},\"date\":{\"type\":[\"string\",\"null\"]},\"lines\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"description\":{\"type\":[\"string\",\"null\"]},\"qty\":{\"type\":[\"number\",\"null\"]},\"unit_price\":{\"type\":[\"number\",\"null\"]},\"amount\":{\"type\":[\"number\",\"null\"]}},\"required\":[\"description\",\"qty\",\"unit_price\",\"amount\"]}},\"subtotal\":{\"type\":[\"number\",\"null\"]},\"tax\":{\"type\":[\"number\",\"null\"]},\"total\":{\"type\":[\"number\",\"null\"]}},\"required\":[\"vendor\",\"invoice_no\",\"date\",\"lines\",\"subtotal\",\"tax\",\"total\"]}",
+        "options": {
+          "systemPromptTemplate": "You copy fields from invoice text. You never check, correct or calculate anything.\n- vendor: the seller's company name at the top of the invoice. Never the \"Bill to\" customer.\n- invoice_no: exactly as printed after \"Invoice No\". If there is none, use null.\n- date: the invoice date. If printed as YYYY-MM-DD, copy it exactly, even if it looks impossible. If printed in another format, convert it to YYYY-MM-DD. If missing, use null.\n- lines: one entry per item row, with description, qty, unit_price and amount as printed.\n- subtotal, tax, total: the numbers as printed, without currency symbols.\n- If a value is not on the invoice, use null. Never guess or work out a missing value.",
+          "batching": {
+            "batchSize": 1,
+            "delayBetweenBatches": 4500
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "f30a213c-3356-4d19-b877-de9160855452",
+      "name": "AI extract fields"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "6f7fc93f-47e0-48ec-8aa5-edb3c02c7fbe",
+              "leftValue": "={{ $json.flagged }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1424,
+        0
+      ],
+      "id": "d0b8a55d-71f3-40a1-be68-67735da52e3d",
+      "name": "Flagged?"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Needs review"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "file",
+              "displayName": "file",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoice_no",
+              "displayName": "invoice_no",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subtotal",
+              "displayName": "subtotal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tax",
+              "displayName": "tax",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reasons",
+              "displayName": "reasons",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reviewer_decision",
+              "displayName": "reviewer_decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reviewer_notes",
+              "displayName": "reviewer_notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "RAW",
+          "handlingExtraData": "ignoreIt"
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1648,
+        -96
+      ],
+      "id": "0da46eef-7838-4a83-be0e-02d52cd8dd43",
+      "name": "Add to need review"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Approved"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "file",
+              "displayName": "file",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoice_no",
+              "displayName": "invoice_no",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subtotal",
+              "displayName": "subtotal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tax",
+              "displayName": "tax",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "RAW",
+          "handlingExtraData": "ignoreIt"
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1648,
+        80
+      ],
+      "id": "61d45c0f-ac3d-4c02-bfd9-7ec69b06d6b3",
+      "name": "Add to Approved"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Results"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "file",
+              "displayName": "file",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "invoice_no",
+              "displayName": "invoice_no",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subtotal",
+              "displayName": "subtotal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tax",
+              "displayName": "tax",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "flagged",
+              "displayName": "flagged",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reasons",
+              "displayName": "reasons",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "RAW",
+          "handlingExtraData": "ignoreIt"
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1456,
+        320
+      ],
+      "id": "4fa31b75-e3b1-45a1-8756-2cb8f39b5043",
+      "name": "Add to Results"
+    },
+    {
+      "parameters": {
+        "formTitle": "Invoice checker demo",
+        "formDescription": "Upload one synthetic invoice PDF",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Invoice PDF",
+              "fieldType": "file",
+              "fieldName": "invoice",
+              "multipleFiles": false,
+              "acceptFileTypes": ".pdf",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        0
+      ],
+      "id": "5c6f8bb4-aa20-4a06-98c7-ce06f8d830d9",
+      "name": "Upload Invoice",
+      "webhookId": "639db527-1f9b-424e-97f6-8569e19bfa81"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Approved"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "a06755e6-3d3e-47c5-868c-7bf36f16f1ee",
+      "name": "Read Approved",
+      "executeOnce": true,
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "Extract PDF text": {
+      "main": [
+        [
+          {
+            "node": "AI extract fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI extract fields",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI extract fields": {
+      "main": [
+        [
+          {
+            "node": "Read Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Rules": {
+      "main": [
+        [
+          {
+            "node": "Flagged?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Add to Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flagged?": {
+      "main": [
+        [
+          {
+            "node": "Add to need review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add to Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Invoice": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Approved": {
+      "main": [
+        [
+          {
+            "node": "Check Rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
+}

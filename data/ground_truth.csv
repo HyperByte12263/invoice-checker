@@ -1,0 +1,51 @@
+file,vendor,invoice_no,date,subtotal,tax,total,planted_error
+invoice_000.pdf,Demo Office Mart,INV-1000,2026-01-14,361.0,21.66,382.66,
+invoice_001.pdf,Example Supplies Co.,INV-1001,2026-05-23,302.0,18.12,320.12,
+invoice_002.pdf,Example Supplies Co.,INV-1002,2026-04-21,254.0,19.24,273.24,wrong_tax
+invoice_003.pdf,Example Supplies Co.,INV-1003,2026-05-16,241.5,14.49,255.99,
+invoice_004.pdf,Demo Office Mart,INV-1004,2026-07-05,1532.5,91.95,1624.45,
+invoice_005.pdf,Example Supplies Co.,INV-1005,2026-05-29,105.0,6.3,111.3,
+invoice_006.pdf,Sample Tech Resources,INV-1006,2026-13-45,309.5,18.57,328.07,bad_date
+invoice_007.pdf,Demo Office Mart,INV-1000,2026-02-06,1245.0,74.7,1319.7,duplicate_number
+invoice_008.pdf,Placeholder Logistics,INV-1008,2026-10-13,1248.0,74.88,1327.88,wrong_total
+invoice_009.pdf,Demo Office Mart,INV-1000,2026-05-18,590.0,35.4,625.4,duplicate_number
+invoice_010.pdf,Mock Print Works,INV-1010,2026-09-13,180.0,10.8,190.8,
+invoice_011.pdf,Demo Office Mart,INV-1011,2026-05-15,1353.5,81.21,1434.71,
+invoice_012.pdf,Example Supplies Co.,INV-1012,2026-09-10,1066.0,63.96,1129.96,
+invoice_013.pdf,Demo Office Mart,INV-1013,2026-08-05,435.0,26.1,461.1,
+invoice_014.pdf,Placeholder Logistics,INV-1014,2026-09-28,400.0,24.0,424.0,
+invoice_015.pdf,Sample Tech Resources,,2026-08-11,685.0,41.1,726.1,missing_number
+invoice_016.pdf,Demo Office Mart,,2026-06-02,218.0,13.08,231.08,missing_number
+invoice_017.pdf,Mock Print Works,INV-1017,2026-06-15,1105.5,66.33,1171.83,
+invoice_018.pdf,Demo Office Mart,INV-1018,2026-01-30,87.5,7.25,94.75,wrong_tax
+invoice_019.pdf,Sample Tech Resources,INV-1019,2026-03-06,352.5,21.15,373.65,
+invoice_020.pdf,Placeholder Logistics,INV-1020,2026-04-13,1276.0,76.56,1352.56,
+invoice_021.pdf,Example Supplies Co.,INV-1021,2026-04-26,198.0,11.88,209.88,
+invoice_022.pdf,Sample Tech Resources,INV-1022,2026-01-31,230.0,13.8,243.8,
+invoice_023.pdf,Placeholder Logistics,INV-1023,2026-05-02,137.5,8.25,145.75,
+invoice_024.pdf,Mock Print Works,INV-1024,2026-05-05,1483.0,88.98,1571.98,
+invoice_025.pdf,Mock Print Works,INV-1025,2026-08-05,1334.0,80.04,1414.04,
+invoice_026.pdf,Sample Tech Resources,INV-1026,2026-02-25,344.0,20.64,364.64,
+invoice_027.pdf,Placeholder Logistics,INV-1027,2026-04-04,632.0,37.92,669.92,
+invoice_028.pdf,Example Supplies Co.,INV-1028,2026-10-04,927.5,55.65,983.15,
+invoice_029.pdf,Sample Tech Resources,INV-1029,2026-09-04,780.0,46.8,826.8,
+invoice_030.pdf,Placeholder Logistics,INV-1030,2026-08-21,936.5,56.19,992.69,
+invoice_031.pdf,Demo Office Mart,INV-1031,2026-01-30,259.0,15.54,274.54,
+invoice_032.pdf,Demo Office Mart,INV-1032,2026-09-15,872.5,52.35,924.85,
+invoice_033.pdf,Sample Tech Resources,INV-1033,2026-02-04,40.0,2.4,42.4,
+invoice_034.pdf,Mock Print Works,INV-1034,2026-02-11,367.5,22.05,389.55,
+invoice_035.pdf,Mock Print Works,INV-1035,2026-13-45,805.0,48.3,853.3,bad_date
+invoice_036.pdf,Mock Print Works,INV-1036,2026-01-05,143.0,8.58,151.58,
+invoice_037.pdf,Sample Tech Resources,INV-1037,2026-02-05,323.5,19.41,342.91,
+invoice_038.pdf,Example Supplies Co.,INV-1038,2026-09-28,1409.0,84.54,1493.54,
+invoice_039.pdf,Sample Tech Resources,INV-1039,2026-10-11,185.5,11.13,196.63,
+invoice_040.pdf,Demo Office Mart,INV-1040,2026-05-16,525.0,31.5,556.5,
+invoice_041.pdf,Placeholder Logistics,INV-1041,2026-01-23,404.0,24.24,433.24,wrong_total
+invoice_042.pdf,Mock Print Works,INV-1042,2026-10-10,870.0,52.2,922.2,
+invoice_043.pdf,Sample Tech Resources,INV-1043,2026-10-10,406.5,24.39,430.89,
+invoice_044.pdf,Sample Tech Resources,INV-1044,2026-04-18,597.5,35.85,633.35,
+invoice_045.pdf,Sample Tech Resources,INV-1045,2026-03-25,708.5,42.51,751.01,
+invoice_046.pdf,Placeholder Logistics,INV-1046,2026-05-08,907.5,54.45,961.95,
+invoice_047.pdf,Sample Tech Resources,INV-1047,2026-04-24,284.5,17.07,301.57,
+invoice_048.pdf,Mock Print Works,INV-1048,2026-04-09,140.0,8.4,148.4,
+invoice_049.pdf,Demo Office Mart,INV-1049,2026-07-24,1050.0,63.0,1113.0,
