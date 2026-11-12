@@ -15,7 +15,7 @@
     },
     {
       "parameters": {
-        "fileSelector": "C:/path/to/invoice-checker/invoices/invoice_*.pdf",
+        "fileSelector": "C:/CHANGE-ME/invoice-checker/invoices/invoice_*.pdf",
         "options": {
           "literalBrackets": false
         }

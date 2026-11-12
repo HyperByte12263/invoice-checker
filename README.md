@@ -145,12 +145,20 @@ and a Gemini API key from Google AI Studio. Commands below are for Windows Power
      does.
    - **Google Gemini(PaLM) Api**, with an API key from Google AI Studio.
 5. **Import both workflows.** Create a new workflow, then use the **⋯** menu at the top right and
-   choose **Import from File**. In each imported workflow:
+   choose **Import from File**. The import brings in the nodes but not the workflow description.
+   In each imported workflow:
    - choose your credentials on the `Gemini` node and on every Google Sheets node,
-   - replace `YOUR_SPREADSHEET_ID` with your sheet's ID (the long part of its URL between `/d/`
-     and `/edit`),
-   - in the batch workflow, set the folder in `Read invoice PDFs` to your `invoices` path, with
-     forward slashes, for example `C:/full/path/to/invoice-checker/invoices/invoice_*.pdf`.
+   - in every Google Sheets node, replace `YOUR_SPREADSHEET_ID` with your sheet's ID (the long
+     part of its URL between `/d/` and `/edit`). Changing the document **clears the Sheet field and
+     the node's options**, so then:
+     - pick the tab again under **Sheet** (From list): `Approved`, `Needs review` or `Results`,
+       matching the node's name,
+     - in the three `Add to …` nodes, add the two options again: **Cell Format: Let n8n format**
+       and **Handling extra fields in input: Ignore Them**. Without them, extra fields become new
+       columns in your sheet,
+   - in the batch workflow, replace the whole path in `Read invoice PDFs`, including the
+     `C:/CHANGE-ME` part, with your `invoices` folder in forward slashes, for example
+     `C:/Users/you/invoice-checker/invoices/invoice_*.pdf`.
 6. **Run the batch workflow**, then download the Results tab as CSV to `data/results_export.csv`
    and score it:
    ```powershell
