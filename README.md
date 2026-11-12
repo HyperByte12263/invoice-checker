@@ -92,8 +92,8 @@ Google AI Studio usage page.
 - **Simple rules.** One flat tax rate, the `INV-` number format of the synthetic suppliers,
   duplicates matched on vendor + number only, and dates only in `YYYY-MM-DD`. The full list is in
   [docs/limitations.md](docs/limitations.md).
-- **Free-tier speed.** Gemini's free tier allows 15 requests per minute and 500 per day for this
-  model. In the 50-invoice run, one call took 132.6 s, which stretched the run to 8.5 minutes.
+- **Free-tier speed.** At the time of testing, Gemini's free tier allowed 15 requests per minute
+  and 500 per day for this model. In the 50-invoice run, one call took 132.6 s, which stretched the run to 8.5 minutes.
 - **Google Sheets is not a database.** Two runs at the same time could both approve the same
   duplicate. Run one batch at a time.
 
@@ -116,12 +116,12 @@ Google AI Studio usage page.
 You need Node.js 24 or newer (required by n8n 2.46.6), Python 3.11 or newer, a Google account,
 and a Gemini API key from Google AI Studio. Commands below are for Windows PowerShell.
 
-1. **Invoices and tests.** The 50 PDFs are already in `invoices/`. To regenerate them:
+1. **Tests and invoices.** Run the rule tests with `node --test`. The 50 PDFs are already in
+   `invoices/`. To regenerate them (the seed and dates are fixed, so the data comes out the same):
    ```powershell
    python -m venv .venv
    .venv\Scripts\pip install fpdf2==2.9.0
    .venv\Scripts\python tools\make_invoices.py
-   node --test
    ```
 2. **Start n8n on localhost only**, limited to the invoices folder:
    ```powershell
@@ -129,30 +129,38 @@ and a Gemini API key from Google AI Studio. Commands below are for Windows Power
    $env:N8N_RESTRICT_FILE_ACCESS_TO = 'C:\full\path\to\invoice-checker\invoices'
    npx n8n@2.46.6
    ```
-   Then open http://localhost:5678.
+   Then open http://localhost:5678. n8n blocks file reads outside this folder, so the path in
+   step 5 must point inside it.
 3. **Create a Google Sheet** called `Invoice results` with three tabs and these header rows:
    - `Approved`: `processed_at, file, vendor, invoice_no, date, subtotal, tax, total`
    - `Needs review`: the same, plus `reasons, reviewer_decision, reviewer_notes`
    - `Results`: the same as Approved, plus `flagged, reasons`
 4. **Add two credentials in n8n:**
-   - **Google Sheets OAuth2 API.** Create a Google Cloud project, enable the Sheets and Drive APIs,
-     and create a "Web application" OAuth client with the redirect URL
-     `http://localhost:5678/rest/oauth2-credential/callback`.
-   - **Google Gemini (PaLM) API**, with your AI Studio key.
-5. **Import both workflows** (Workflows > Import from file). In each one:
-   - choose your credentials on the Gemini and Google Sheets nodes,
-   - replace `YOUR_SPREADSHEET_ID` with your sheet's ID (from its URL),
-   - in the batch workflow, set the folder in `Read invoice PDFs` to your `invoices` path
-     (forward slashes).
+   - **Google Sheets OAuth2 API.** In Google Cloud: create a project, enable the Google Sheets and
+     Google Drive APIs, set the OAuth consent screen to **External** in **Testing** mode and add
+     your own Google account as a **test user**, then create an OAuth client of type
+     "Web application" with the redirect URL
+     `http://localhost:5678/rest/oauth2-credential/callback`. Paste its client ID and secret into
+     n8n and sign in. In Testing mode the sign-in expires after 7 days; reconnect it in n8n when it
+     does.
+   - **Google Gemini(PaLM) Api**, with an API key from Google AI Studio.
+5. **Import both workflows.** Create a new workflow, then use the **⋯** menu at the top right and
+   choose **Import from File**. In each imported workflow:
+   - choose your credentials on the `Gemini` node and on every Google Sheets node,
+   - replace `YOUR_SPREADSHEET_ID` with your sheet's ID (the long part of its URL between `/d/`
+     and `/edit`),
+   - in the batch workflow, set the folder in `Read invoice PDFs` to your `invoices` path, with
+     forward slashes, for example `C:/full/path/to/invoice-checker/invoices/invoice_*.pdf`.
 6. **Run the batch workflow**, then download the Results tab as CSV to `data/results_export.csv`
    and score it:
    ```powershell
-   .venv\Scripts\python tools\evaluate.py data\results_export.csv --run-seconds <run time> --tokens <total tokens>
+   .venv\Scripts\python tools\evaluate.py data\results_export.csv --run-seconds <seconds> --tokens <total tokens>
    ```
-   Clear the data rows (keep the headers) before each new run. Otherwise every invoice already in
-   Approved is flagged as a duplicate.
-7. **Try the demo:** open the demo workflow, click **Execute workflow**, and upload one PDF in the
-   form that opens.
+   Take the run time from n8n's Executions list and the token total from Google AI Studio's
+   usage page. Clear the data rows (keep the headers) before each new run. Otherwise every invoice
+   already in Approved is flagged as a duplicate.
+7. **Try the demo:** clear the sheet rows first, for the same reason. Then open the demo workflow,
+   click **Execute workflow**, and upload one PDF in the form that opens.
 
 ## Repo layout
 
